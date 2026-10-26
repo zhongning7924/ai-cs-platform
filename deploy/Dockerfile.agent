@@ -1,0 +1,29 @@
+# 智能层（FastAPI :8788）
+# build context 是仓库根，所以路径从根写起：docker build -f deploy/Dockerfile.agent .
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# 依赖层单独提前：改业务代码不会让这层失效，客户现场重建从几分钟降到几秒
+COPY services/agent-py/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY services/agent-py/ ./
+
+# 不用 root 跑。客户安全审计第一项就查这个，提前做掉省一轮返工。
+RUN useradd --create-home --uid 10001 app && chown -R app:app /app
+USER app
+
+ENV PORT=8788
+EXPOSE 8788
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=25s --retries=3 \
+  CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8788/health', timeout=2).status == 200 else 1)"
+
+# workers 固定 1：会话记忆、BM25 词表、限流都在进程内，多 worker 会各算各的。
+# 要横向扩容，先换掉这三处（见 deploy/README.md 的「扩容前必须换掉的东西」）。
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers 1"]

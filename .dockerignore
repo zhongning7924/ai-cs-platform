@@ -1,0 +1,26 @@
+# 构建上下文瘦身：node_modules 一进去就是几百 MB，且会和镜像里的冲突
+node_modules
+**/node_modules
+
+# 产物在镜像里现构建，避免把开发机上的旧 dist 带进交付包
+**/dist
+**/*.tsbuildinfo
+
+# 密钥绝不进镜像层（.env 由 compose 的 env_file 在运行时注入）
+.env
+**/.env
+!**/.env.example
+!deploy/.env.private.example
+
+# 运行数据与本地缓存
+var
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+
+.git
+.gitignore
+*.log
+*.tar
+*.tar.gz
+docs

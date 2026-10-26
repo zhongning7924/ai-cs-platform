@@ -1,0 +1,62 @@
+# 私有化交付编排：单机单商户，一台机器服务一家客户。
+#
+# 刻意不做的两件事：
+#   · 不引入 Redis / Nginx / K8s —— 客户运维只需要会 docker compose
+#   · 不做多租户 —— 隔离由「一台机器一家客户」这个物理边界保证
+#
+# 扩容到多实例之前，先看 README 里「扩容前必须换掉的三处」。
+name: cs-private
+
+services:
+  # 本地向量库。只在 compose 网络内可达，**不映射端口**：
+  # 它没有鉴权，映射到宿主机等于把客户知识库裸奔在内网上。
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    restart: unless-stopped
+    volumes:
+      - qdrant-data:/qdrant/storage
+    expose:
+      - "6333"
+
+  # 智能层：agent 循环、检索、工具、MCP。不对外，只给 gateway 调。
+  agent:
+    image: ${CS_IMAGE_PREFIX:-}cs-agent:${CS_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "8788"
+      # 用客户已有 Qdrant 时，在 .env 里写 QDRANT_URL 覆盖这里
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+    expose:
+      - "8788"
+    depends_on:
+      - qdrant
+
+  # 连接层：唯一对外端口。托管挂件静态资源 + SSE + 评价/导出接口。
+  gateway:
+    image: ${CS_IMAGE_PREFIX:-}cs-gateway:${CS_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "8787"
+      DATA_DIR: /data
+      AGENT_BACKEND: py
+      PY_AGENT_URL: http://agent:8788
+    ports:
+      - "${CS_PORT:-8787}:8787"
+    volumes:
+      # 对话与评价落这里。不挂卷 = 容器一重建全没，客户会当成数据丢失事故。
+      - app-data:/data
+    depends_on:
+      - agent
+
+volumes:
+  qdrant-data:
+  app-data:

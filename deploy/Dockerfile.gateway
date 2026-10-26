@@ -1,0 +1,43 @@
+# 连接层（Express :8787，同时托管挂件静态资源与 SSE）
+# build context 是仓库根：docker build -f deploy/Dockerfile.gateway .
+FROM node:20-bookworm-slim AS build
+
+WORKDIR /repo
+
+# 只拷 package.json 先装依赖 —— 这是缓存命中率的关键：
+# 改一行 TS 不会让 npm ci 重跑，而 npm ci 是整次构建最慢的一步。
+COPY package.json package-lock.json ./
+COPY packages/protocol/package.json packages/protocol/
+COPY packages/faq-engine/package.json packages/faq-engine/
+COPY packages/kb-core/package.json packages/kb-core/
+COPY packages/agent/package.json packages/agent/
+COPY apps/gateway/package.json apps/gateway/
+COPY apps/web-widget/package.json apps/web-widget/
+RUN npm ci --no-audit --no-fund
+
+COPY . .
+RUN npm run build -w @cs/web-widget
+
+
+FROM node:20-bookworm-slim
+
+WORKDIR /repo
+
+# 网关用 tsx 直接跑 TS（各 workspace 包的 exports 指向 src/index.ts，
+# 没有编译产物）。所以运行时阶段必须保留 build 阶段的 node_modules。
+ENV NODE_ENV=production \
+    PORT=8787 \
+    DATA_DIR=/data
+
+COPY --from=build /repo /repo
+
+# 数据目录单独建并交给 node 用户：客户挂卷过来时不会因权限被写拒
+RUN mkdir -p /data && chown -R node:node /data /repo
+USER node
+
+EXPOSE 8787
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["npx", "tsx", "apps/gateway/src/index.ts"]
