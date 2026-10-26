@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>云选家居 · 示例商城（挂件演示宿主页）</title>
+  </head>
+  <body>
+    <header class="host-header">
+      <div class="host-logo">云选家居</div>
+      <nav class="host-nav">
+        <span>首页</span>
+        <span>沙发</span>
+        <span>床垫</span>
+        <span>灯具</span>
+        <span>会员</span>
+      </nav>
+    </header>
+
+    <section class="host-hero">
+      <h1>小户型也能有好客厅</h1>
+      <p>本页是挂件演示用的"商家宿主页"。右下角即为智能客服挂件——真实接入时，商家只需在页面中加入一行嵌入代码。</p>
+    </section>
+
+    <section class="host-grid">
+      <div class="host-card">
+        <div class="host-card__thumb">商品图</div>
+        <div class="host-card__name">云朵三人位沙发</div>
+        <div class="host-card__price">¥2,999</div>
+      </div>
+      <div class="host-card">
+        <div class="host-card__thumb">商品图</div>
+        <div class="host-card__name">慢回弹记忆棉床垫</div>
+        <div class="host-card__price">¥1,899</div>
+      </div>
+      <div class="host-card">
+        <div class="host-card__thumb">商品图</div>
+        <div class="host-card__name">北欧落地阅读灯</div>
+        <div class="host-card__price">¥399</div>
+      </div>
+    </section>
+
+    <section class="host-embed">
+      <h2>接入方式（P2 SDK 化后的形态）</h2>
+      <div class="host-embed__box">
+&lt;<span class="tk">script</span> <span class="tk">src</span>=<span class="tv">"https://cdn.example.com/cs-widget.iife.js"</span> <span class="tk">defer</span>&gt;&lt;/<span class="tk">script</span>&gt;<br />
+&lt;<span class="tk">div</span> <span class="tk">id</span>=<span class="tv">"cs-widget-root"</span>&gt;&lt;/<span class="tk">div</span>&gt;
+      </div>
+    </section>
+
+    <footer class="host-footer">AI 智能客服平台 · 最小 MVP 演示（P1：网页渠道 + FAQ 场景）</footer>
+
+    <div id="cs-widget-root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

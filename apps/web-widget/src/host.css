@@ -1,0 +1,133 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
+  background: #f8fafc;
+  color: #111827;
+}
+
+.host-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 32px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.host-logo {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.host-nav {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.host-hero {
+  padding: 56px 32px 40px;
+  text-align: center;
+}
+
+.host-hero h1 {
+  font-size: 30px;
+  margin-bottom: 12px;
+}
+
+.host-hero p {
+  color: #6b7280;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.host-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 32px 48px;
+}
+
+.host-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.host-card__thumb {
+  height: 96px;
+  border-radius: 8px;
+  background: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2563eb;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.host-card__name {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.host-card__price {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.host-embed {
+  max-width: 960px;
+  margin: 0 auto 48px;
+  padding: 0 32px;
+}
+
+.host-embed__box {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 20px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+.host-embed__box .tk {
+  color: #7dd3fc;
+}
+
+.host-embed__box .tv {
+  color: #86efac;
+}
+
+.host-embed h2 {
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
+.host-footer {
+  text-align: center;
+  padding: 24px;
+  color: #9ca3af;
+  font-size: 12px;
+  border-top: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+@media (max-width: 720px) {
+  .host-grid {
+    grid-template-columns: 1fr;
+  }
+}

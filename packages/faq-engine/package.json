@@ -1,0 +1,17 @@
+{
+  "name": "@cs/faq-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MVP bot engine: rule/keyword FAQ matching (rule channel of ADR-001), LLM integration point reserved",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7"
+  }
+}

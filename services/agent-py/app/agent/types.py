@@ -1,0 +1,162 @@
+"""智能体契约（对标 packages/agent/src/types.ts，ADR-0006）。
+
+四个扩展缝：Planner（决策）/ Tool（行动）/ Memory（记忆）/ Guardrail（护栏）。
+本模块只定义契约，不绑定任何具体 LLM、知识库、订单系统——那些是宿主的注册项。
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+from ..schemas import CardPayload
+
+if TYPE_CHECKING:
+    from ..skills.types import ActiveSkill
+
+ToolRisk = Literal["low", "high"]
+ToolStatus = Literal["start", "done"]
+
+
+@dataclass
+class JsonSchema:
+    """OpenAI Function Calling 兼容的参数 schema。"""
+
+    type: str = "object"
+    properties: dict[str, dict[str, Any]] = field(default_factory=dict)
+    required: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ToolSpec:
+    name: str
+    description: str
+    parameters: JsonSchema
+    risk: ToolRisk = "low"
+
+    def openai_tool(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": self.parameters.type,
+                    "properties": self.parameters.properties,
+                    **({"required": self.parameters.required} if self.parameters.required else {}),
+                },
+            },
+        }
+
+
+@dataclass
+class ToolContext:
+    session_id: str
+    namespace: str = "personal"
+
+
+@dataclass
+class ToolResult:
+    """工具产出。observation 是喂回规划器的唯一事实来源。"""
+
+    observation: str
+    card: CardPayload | None = None
+
+
+class Tool(Protocol):
+    spec: ToolSpec
+
+    async def execute(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult: ...
+
+
+@dataclass
+class ChatTurn:
+    role: Literal["user", "assistant", "tool", "system"]
+    content: str
+    tool_name: str | None = None
+    ts: int = field(default_factory=lambda: int(time.time() * 1000))
+
+
+@dataclass
+class ToolObservation:
+    tool_name: str
+    text: str
+
+
+@dataclass
+class PendingConfirm:
+    call_id: str
+    tool_name: str
+    args: dict[str, Any]
+    summary: str
+    created_at: float
+
+
+@dataclass
+class ReplyDecision:
+    text: str
+    streamed: bool = False
+
+
+@dataclass
+class ToolCallDecision:
+    call_id: str
+    tool_name: str
+    args: dict[str, Any]
+
+
+PlannerDecision = ReplyDecision | ToolCallDecision
+
+
+@dataclass
+class PlannerContext:
+    session_id: str
+    question: str
+    history: list[ChatTurn]
+    tools: list[ToolSpec]
+    observations: list[ToolObservation]
+    step: int
+    # 命中的技能（上下文增强，不限制工具权限）
+    skill: ActiveSkill | None = None
+    on_delta: Any = None  # Callable[[str], None] | None
+
+
+class AgentPlanner(Protocol):
+    name: str
+
+    async def next(self, ctx: PlannerContext) -> PlannerDecision: ...
+
+
+@dataclass
+class RunMeta:
+    steps: int = 0
+    tool_calls: list[str] = field(default_factory=list)
+    planner: str = "unknown"
+    degraded: bool = False
+    skill: str | None = None
+
+
+@dataclass
+class DeltaEvent:
+    text: str
+
+
+@dataclass
+class ToolEvent:
+    name: str
+    status: ToolStatus
+    summary: str | None = None
+
+
+@dataclass
+class CardEvent:
+    card: CardPayload
+
+
+@dataclass
+class EndEvent:
+    meta: RunMeta
+
+
+AgentEvent = DeltaEvent | ToolEvent | CardEvent | EndEvent

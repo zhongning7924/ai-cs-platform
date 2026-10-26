@@ -1,0 +1,44 @@
+[project]
+name = "cs-agent-py"
+version = "0.1.0"
+description = "AI 智能客服 · Python 智能层（agent loop + RAG + 评测）"
+readme = "README.md"
+requires-python = ">=3.11"
+# 核心依赖刻意只留"任何 Python 后端环境都该有的"这几个，
+# 保证在已经配好的机器上零安装即可启动。
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.27.0",
+    "openai>=1.54.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "ruff>=0.7.0"]
+
+# 可选增强：装了会更好，不装也能跑（BM25 用内置实现，分词退化为字符二元组）
+[project.optional-dependencies]
+hybrid = ["jieba>=0.42.1", "rank-bm25>=0.2.2"]
+qdrant-sdk = ["qdrant-client>=1.12.0"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

@@ -1,0 +1,25 @@
+{
+  "name": "@cs/kb-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Knowledge base core (ADR-003/004): chunk -> embed (SiliconFlow bge-m3) -> store/search (Qdrant) -> rerank (bge-reranker-v2-m3)",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "mammoth": "^1.13.0",
+    "unpdf": "^1.9.1"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "cli": "node --import tsx scripts/kb-cli.ts",
+    "smoke": "node --import tsx scripts/smoke.ts",
+    "keepalive": "node --import tsx scripts/smoke.ts --keepalive"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7"
+  }
+}

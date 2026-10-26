@@ -1,0 +1,30 @@
+{
+  "name": "ai-cs-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI smart customer service platform monorepo: widget + gateway + bot engine MVP (P1 of the manual chapter 5)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n gateway,widget -c blue,green \"npm:dev:gateway\" \"npm:dev:widget\"",
+    "dev:gateway": "npm run dev -w @cs/gateway",
+    "dev:widget": "npm run dev -w @cs/web-widget",
+    "build": "npm run build -w @cs/web-widget",
+    "start": "npm run start -w @cs/gateway",
+    "typecheck": "npm run typecheck -w @cs/protocol && npm run typecheck -w @cs/faq-engine && npm run typecheck -w @cs/kb-core && npm run typecheck -w @cs/agent && npm run typecheck -w @cs/gateway && npm run typecheck -w @cs/web-widget",
+    "test": "node --import tsx --test packages/faq-engine/test/*.test.ts packages/kb-core/test/*.test.ts packages/agent/test/*.test.ts",
+    "kb:smoke": "npm run smoke -w @cs/kb-core",
+    "kb:keepalive": "npm run keepalive -w @cs/kb-core",
+    "kb": "npm run cli -w @cs/kb-core --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

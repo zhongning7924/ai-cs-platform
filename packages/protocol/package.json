@@ -1,0 +1,14 @@
+{
+  "name": "@cs/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Unified message protocol (ADR-002): the single contract shared by channels, widget and gateway",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
