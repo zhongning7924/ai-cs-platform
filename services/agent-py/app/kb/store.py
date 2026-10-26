@@ -31,7 +31,11 @@ class VectorStore:
     def __init__(self, url: str, api_key: str, *, timeout: float = 30.0) -> None:
         self._base = url.rstrip("/")
         self._timeout = timeout
-        self._headers = {"api-key": api_key, "Content-Type": "application/json"}
+        self._headers = {"Content-Type": "application/json"}
+        # 自建 Qdrant 通常不开鉴权。空 key 还硬塞 header，部分版本会直接 401，
+        # 于是「本地容器跑得好好的」在交付现场变成启动失败。有 key 才发。
+        if api_key:
+            self._headers["api-key"] = api_key
 
     def _url(self, path: str) -> str:
         return f"{self._base}/collections/{path}"

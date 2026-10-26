@@ -38,11 +38,13 @@ interface PostOptions {
 }
 
 function resolveApiKey(explicit?: string): string {
-  const key = explicit ?? process.env.SILICONFLOW_API_KEY;
+  // EMBEDDING_* 优先：私有化时 embedding 常在内网自建网关，与 LLM 的 key 不同一家
+  const key = explicit ?? process.env.EMBEDDING_API_KEY ?? process.env.SILICONFLOW_API_KEY;
   if (!key) {
     throw new Error(
-      '[kb-core] 缺少 SILICONFLOW_API_KEY。到 https://cloud.siliconflow.cn/account/ak 领免费 key，' +
-        '然后 export SILICONFLOW_API_KEY=sk-xxx',
+      '[kb-core] 缺少 EMBEDDING_API_KEY（或 SILICONFLOW_API_KEY）。' +
+        '硅基流动用户到 https://cloud.siliconflow.cn/account/ak 领免费 key；' +
+        '私有化部署填自建 embedding 网关的 key。',
     );
   }
   return key;
@@ -125,10 +127,19 @@ export class SiliconFlowEmbedder implements Embedder {
   ) {
     this.modelId = options.model ?? BGE_M3_MODEL;
     this.dimensions = options.dimensions ?? BGE_M3_DIMENSIONS;
-    assertFreeModel(this.modelId);
 
     this.apiKey = resolveApiKey(options.apiKey);
-    this.baseUrl = (options.baseUrl ?? process.env.SILICONFLOW_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+    this.baseUrl = (
+      options.baseUrl ??
+      process.env.EMBEDDING_BASE_URL ??
+      process.env.SILICONFLOW_BASE_URL ??
+      DEFAULT_BASE_URL
+    ).replace(/\/$/, '');
+
+    // 「Pro/ 是收费模型」是硅基流动免费档的规则。自建网关没有这个概念，
+    // 无条件套用会把客户自己部署的 Pro/xxx 直接判死，所以只在硅基流动域名下检查。
+    if (/siliconflow/i.test(this.baseUrl)) assertFreeModel(this.modelId);
+
     this.batchSize = options.batchSize ?? 32;
     this.opts = {
       apiKey: this.apiKey,
@@ -184,11 +195,19 @@ export class SiliconFlowReranker implements Reranker {
 
   constructor(options: SiliconFlowOptions & { model?: string } = {}) {
     this.modelId = options.model ?? BGE_RERANKER_MODEL;
-    assertFreeModel(this.modelId);
 
-    this.baseUrl = (options.baseUrl ?? process.env.SILICONFLOW_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+    this.baseUrl = (
+      options.baseUrl ??
+      process.env.RERANK_BASE_URL ??
+      process.env.EMBEDDING_BASE_URL ??
+      process.env.SILICONFLOW_BASE_URL ??
+      DEFAULT_BASE_URL
+    ).replace(/\/$/, '');
+
+    if (/siliconflow/i.test(this.baseUrl)) assertFreeModel(this.modelId);
+
     this.opts = {
-      apiKey: resolveApiKey(options.apiKey),
+      apiKey: resolveApiKey(options.apiKey ?? process.env.RERANK_API_KEY),
       timeoutMs: options.timeoutMs ?? 20_000,
       maxRetries: options.maxRetries ?? 2,
     };

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, AsyncIterator, Callable
 from ..schemas import CardAction, CardPayload
 from .memory import AgentMemory, InMemoryMemory
 from .registry import ToolRegistry
+from .sanitize import user_safe_echo
 from .types import (
     AgentEvent,
     AgentPlanner,
@@ -27,6 +28,7 @@ from .types import (
     PlannerContext,
     ReplyDecision,
     RunMeta,
+    ToolCallDecision,
     ToolContext,
     ToolEvent,
     ToolObservation,
@@ -82,6 +84,7 @@ class AgentRuntime:
         history_window: int = 12,
         stream_chunk_size: int = 48,
         logger: Callable[[str], None] | None = None,
+        agent_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         self._planner = planner
         self._fallback = fallback_planner
@@ -92,6 +95,8 @@ class AgentRuntime:
         self._history_window = history_window
         self._chunk_size = stream_chunk_size
         self._logger = logger
+        # 确认/取消轮不经过规划器，坐席归因从这里补，否则 done 帧会丢 agent
+        self._agent_of = agent_resolver
 
     def log(self, message: str) -> None:
         if self._logger:
@@ -131,6 +136,10 @@ class AgentRuntime:
         # 护栏④：有待确认的高风险操作时，先裁决确认/取消
         pending = memory.pending_confirm(session_id)
         if pending:
+            # 这一轮不走规划器，但归因不能缺——补上最后服务过的坐席
+            if self._agent_of is not None:
+                meta.agent = meta.agent or self._agent_of(session_id)
+                meta.route = meta.route or "confirm"
             answer = question.strip()
             if CONFIRM_YES.match(answer):
                 memory.set_pending_confirm(session_id, None)
@@ -164,7 +173,7 @@ class AgentRuntime:
             meta.steps = step + 1
             try:
                 decision = await planner.next(
-                    self._planner_ctx(question, session_id, observations, step, queue, active)
+                    self._planner_ctx(question, session_id, observations, step, queue, active, meta)
                 )
             except Exception as err:  # noqa: BLE001
                 if planner is self._planner and self._fallback is not None:
@@ -175,10 +184,33 @@ class AgentRuntime:
                     continue  # 用降级规划器重跑当前步
                 raise
 
+            # 护栏⑤：坐席工具白名单。规划器把白名单随决策带出来，这里在执行侧再校验一次。
+            # 只靠「规划器看不见」是不够的——模型可能吐出一个清单外的工具名。
+            if isinstance(decision, ToolCallDecision) and decision.allowed_tools is not None:
+                if decision.tool_name not in decision.allowed_tools:
+                    allowed_names = [
+                        n for n in self._registry.names() if n in decision.allowed_tools
+                    ]
+                    self.log(
+                        f"越权调用被拦：{decision.tool_name} 不在 {meta.agent or '当前坐席'} 白名单内"
+                    )
+                    observations.append(
+                        ToolObservation(
+                            tool_name=decision.tool_name,
+                            text=(
+                                f"工具 {decision.tool_name} 不在当前坐席权限内，无法调用。"
+                                f"本坐席可用：{'、'.join(allowed_names) or '无'}。"
+                                f"请改用可用工具，或说明该诉求由对应团队跟进。"
+                            ),
+                        )
+                    )
+                    step += 1
+                    continue
+
             if isinstance(decision, ReplyDecision):
                 text = decision.text.strip()
                 if not text and observations:
-                    text = observations[-1].text[:200]
+                    text = user_safe_echo(observations[-1].text)
                 if text and not decision.streamed:
                     await self._typewriter(text, queue)
                 if not text:
@@ -265,16 +297,19 @@ class AgentRuntime:
             meta.tool_calls.append(decision.tool_name)
             step += 1
 
-        # 步数用尽：把最后的观察摘给用户，不再循环
+        # 步数用尽：把最后的观察摘给用户，不再循环。观察里可能夹着写给模型的指令，
+        # 必须摘干净再出——否则用户会看到「请如实告知用户…」这种内部提醒。
         last = observations[-1] if observations else None
         text = (
-            last.text.strip()
+            user_safe_echo(last.text, 220)
             if last
             else "抱歉，这个问题我还需要更多信息。您可以补充细节，或输入「转人工」。"
         )
-        await self._typewriter(text[:220], queue)
+        if not text:
+            text = "抱歉，这个问题我还需要更多信息。您可以补充细节，或输入「转人工」。"
+        await self._typewriter(text, queue)
         memory.append(session_id, ChatTurn(role="user", content=question))
-        memory.append(session_id, ChatTurn(role="assistant", content=text[:220]))
+        memory.append(session_id, ChatTurn(role="assistant", content=text))
         queue.push(EndEvent(meta))
 
     async def _execute_confirmed(
@@ -320,6 +355,7 @@ class AgentRuntime:
         step: int,
         queue: EventQueue,
         active: "ActiveSkill | None" = None,
+        meta: RunMeta | None = None,
     ) -> PlannerContext:
         specs = self._registry.specs()
         if active is not None and active.skill.tools:
@@ -335,6 +371,7 @@ class AgentRuntime:
             observations=observations,
             step=step,
             skill=active,
+            meta=meta,
             on_delta=lambda text: queue.push(DeltaEvent(text=text)),
         )
 

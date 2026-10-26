@@ -148,7 +148,10 @@ export class KnowledgeBase {
         id: randomUUID(),
         documentId: doc.id,
         namespace: this.namespace,
-        text: piece.text,
+        // 标题必须拼进正文：markdown 按标题切段后，正文里只有「- 价格：2999 元」，
+        // 主语（云朵沙发 三人位）留在了 headingPath 里。不拼回去，任何带型号的提问
+        // 都检索不到自己的片段——「三人位多少钱」会 0 命中。
+        text: piece.headingPath ? `${piece.headingPath}\n${piece.text}` : piece.text,
         source: {
           title: doc.title,
           uri: doc.uri,

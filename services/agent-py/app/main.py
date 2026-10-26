@@ -33,9 +33,10 @@ runtime: AgentRuntime = service.runtime
 async def lifespan(_: FastAPI):
     mcp_summary = await service.mcp.start()
     log.info(
-        "cs-agent-py 已启动: http://localhost:%s | planner=%s | skills=%s | tools=%s | mcp=%s",
+        "cs-agent-py 已启动: http://localhost:%s | planner=%s | agents=%s | skills=%s | tools=%s | mcp=%s",
         settings.port,
         runtime._planner.name,
+        ", ".join(a.name for a in service.agents) or "单坐席",
         ", ".join(s.name for s in service.skills.all()) or "无",
         ", ".join(sorted(runtime._registry.names())),
         ", ".join(t["name"] for t in mcp_summary["tools"]) or "无",
@@ -61,6 +62,7 @@ async def health() -> dict:
         "kb_ready": settings.kb_ready,
         "hybrid": settings.kb_hybrid_enabled,
         "planner": runtime._planner.name,
+        "agents": [a.name for a in service.agents],
         "tools": sorted(runtime._registry.names()),
         "skills": [s.name for s in service.skills.all()],
         "mcp": service.mcp.status()["tools"],
@@ -107,6 +109,9 @@ async def chat(req: ChatRequest) -> StreamingResponse:
                 meta.tool_calls = event.meta.tool_calls
                 meta.degraded = event.meta.degraded
                 meta.skill = event.meta.skill
+                meta.agent = event.meta.agent
+                meta.route = event.meta.route or None
+                meta.handoffs = event.meta.handoffs
 
         meta.first_token_ms = first_ms
         meta.matched = bool(full_text.strip()) or reply_card is not None
@@ -152,3 +157,10 @@ async def list_skills() -> JSONResponse:
 async def list_mcp() -> JSONResponse:
     """MCP 接入状态：server、发现到的工具、失败原因。"""
     return JSONResponse(service.mcp.status())
+
+
+@app.get("/api/agents")
+async def list_agents() -> JSONResponse:
+    """坐席清单与各自的白名单。用于核对「谁能在什么权限下说话」。"""
+    items = service.router.describe() if service.router else []
+    return JSONResponse({"count": len(items), "items": items})

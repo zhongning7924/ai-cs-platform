@@ -26,11 +26,21 @@ class Settings(BaseSettings):
     qdrant_url: str = ""
     qdrant_api_key: str = ""
 
-    # 硅基流动（embedding + rerank）
+    # —— 模型端点：LLM / embedding / rerank 三套独立配置 ——
+    #
+    # 私有化部署的常态是「三者不在同一家」：embedding 跑在内网 TEI，
+    # rerank 挂在集团 AI 平台，LLM 走统一网关。共用一个 base_url 会直接卡死交付。
+    # 各自留空则回退到 SILICONFLOW_*，现有云上部署零改动。
     siliconflow_api_key: str = ""
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
+
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
     embedding_model: str = "BAAI/bge-m3"
     embedding_dimensions: int = 1024
+
+    rerank_base_url: str = ""
+    rerank_api_key: str = ""
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
     # 知识库检索
@@ -56,6 +66,16 @@ class Settings(BaseSettings):
     agent_history_window: int = 12
     agent_stream_chunk_size: int = 48
 
+    # 路由分诊（多坐席）。关掉则退回单坐席：所有工具可见、无白名单
+    agent_routing_enabled: bool = True
+    # 规则路由的分数下限：命中几个触发词就有几分，单号正则每个 +2
+    router_min_score: float = 1.0
+    # 分诊模型：留空复用 llm_model。分类是短任务，可以换更小更快的模型
+    router_model: str = ""
+    router_timeout_seconds: float = 4.0
+    # 本轮无信号时沿用上一轮坐席（多轮追问靠它接住）
+    router_carry_over: bool = True
+
     # 技能：命中后注入领域指令（不限制工具权限）
     skills_enabled: bool = True
 
@@ -72,6 +92,23 @@ class Settings(BaseSettings):
         return self.llm_api_key or self.siliconflow_api_key
 
     @property
+    def effective_embedding_url(self) -> str:
+        return self.embedding_base_url or self.siliconflow_base_url
+
+    @property
+    def effective_embedding_key(self) -> str:
+        return self.embedding_api_key or self.siliconflow_api_key
+
+    @property
+    def effective_rerank_url(self) -> str:
+        # rerank 通常和 embedding 同源（同一台 TEI 就同时提供两者），所以先继承 embedding
+        return self.rerank_base_url or self.effective_embedding_url
+
+    @property
+    def effective_rerank_key(self) -> str:
+        return self.rerank_api_key or self.effective_embedding_key
+
+    @property
     def collection(self) -> str:
         if self.kb_collection:
             return self.kb_collection
@@ -82,7 +119,9 @@ class Settings(BaseSettings):
 
     @property
     def kb_ready(self) -> bool:
-        return bool(self.qdrant_url and self.qdrant_api_key and self.siliconflow_api_key)
+        # 自建 Qdrant 可以不带 key，所以只要求 URL + embedding key。
+        # LLM 和 rerank 都可以缺：检索仍能走向量序，只是没有重排。
+        return bool(self.qdrant_url and self.effective_embedding_key)
 
 
 @lru_cache

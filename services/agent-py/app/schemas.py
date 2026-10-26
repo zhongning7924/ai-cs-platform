@@ -64,6 +64,10 @@ class ChatResponseDone(Wire):
     tool_calls: list[str] = Field(default_factory=list)
     degraded: bool = False
     skill: str | None = None
+    # 路由分诊：坐席、判定来源（rule/carry/llm/fallback）、中途换人记录
+    agent: str | None = None
+    route: str | None = None
+    handoffs: list[str] = Field(default_factory=list)
 
 
 def sse_frame(event: str, data: dict | BaseModel) -> str:

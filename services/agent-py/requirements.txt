@@ -1,0 +1,10 @@
+# 容器安装用的固定清单，与 pyproject.toml 的 dependencies 保持一致。
+# 单独存在的理由：Dockerfile 里 `pip install -r` 比 `pip install .` 快得多，
+# 也不会因为构建后端版本差异在客户现场装不上。
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+httpx>=0.27.0
+openai>=1.54.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.0

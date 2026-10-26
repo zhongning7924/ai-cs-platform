@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 import string
 
+from .sanitize import user_safe_echo
 from .types import PlannerContext, PlannerDecision, ReplyDecision, ToolCallDecision
 
 DEFAULT_FALLBACK = "抱歉，这个问题我暂时答不了。您可以换个问法，或输入「转人工」找人工客服。"
@@ -32,5 +33,6 @@ class RulePlanner:
                 )
             return ReplyDecision(text=self._fallback)
 
+        # 观察是写给模型的，可能夹着「请如实告知用户…」这类指令，不能原样念给用户
         last = ctx.observations[-1] if ctx.observations else None
-        return ReplyDecision(text=(last.text.strip() if last else "") or self._fallback)
+        return ReplyDecision(text=(user_safe_echo(last.text) if last else "") or self._fallback)

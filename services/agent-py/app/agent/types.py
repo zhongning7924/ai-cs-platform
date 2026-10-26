@@ -14,6 +14,7 @@ from ..schemas import CardPayload
 
 if TYPE_CHECKING:
     from ..skills.types import ActiveSkill
+    from .subagents import ActiveAgent
 
 ToolRisk = Literal["low", "high"]
 ToolStatus = Literal["start", "done"]
@@ -104,6 +105,10 @@ class ToolCallDecision:
     call_id: str
     tool_name: str
     args: dict[str, Any]
+    # 规划器声明的工具白名单。None = 不限制（单坐席模式）。
+    # 由 RouterPlanner 填写，runtime 在执行前校验：只在「可见性」这层过滤不够，
+    # 模型可能吐出一个清单外的工具名。
+    allowed_tools: frozenset[str] | None = None
 
 
 PlannerDecision = ReplyDecision | ToolCallDecision
@@ -118,7 +123,11 @@ class PlannerContext:
     observations: list[ToolObservation]
     step: int
     # 命中的技能（上下文增强，不限制工具权限）
-    skill: ActiveSkill | None = None
+    skill: "ActiveSkill | None" = None
+    # 路由到的坐席（身份隔离，限定工具白名单）
+    agent: "ActiveAgent | None" = None
+    # 上报通道：规划器可写 agent / route / handoffs 等归因字段，runtime 原样带出
+    meta: "RunMeta | None" = None
     on_delta: Any = None  # Callable[[str], None] | None
 
 
@@ -135,6 +144,10 @@ class RunMeta:
     planner: str = "unknown"
     degraded: bool = False
     skill: str | None = None
+    # 路由分诊的结果：哪个坐席、怎么定的、中途有没有换人
+    agent: str | None = None
+    route: str = ""
+    handoffs: list[str] = field(default_factory=list)
 
 
 @dataclass

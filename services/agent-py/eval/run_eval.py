@@ -203,13 +203,204 @@ def render(name: str, results: dict[str, CaseResult | None]) -> float:
     return avg
 
 
+# ---------------------------------------------------------------------------
+# 反馈闭环数据集（ADR-0009）
+#
+# 和上面的内置用例是两种东西，别混着看：
+#   内置用例 = 我们「认为」重要的场景，人工写死，稳定但会过时；
+#   反馈数据集 = 用户「实际」遇到的问题，自动采集，覆盖真实分布但噪声大。
+# 两者都要有。只有前者会自我感觉良好，只有后者会越跑越偏。
+# ---------------------------------------------------------------------------
+
+_MISSING = object()
+
+
+@dataclass
+class Sample:
+    """一条线上反馈样本。字段定义见 apps/gateway/src/data/dataset.ts。"""
+
+    id: str
+    message: str
+    label: str
+    weight: float
+    # 三态：_MISSING 未标注 / None 不该调工具 / str 期望调用
+    expect_tool: object = _MISSING
+    expect_card: str | None = None
+    must_contain: list[str] = field(default_factory=list)
+    trace_id: str = ""
+
+
+def load_samples(path: str) -> list[Sample]:
+    samples: list[Sample] = []
+    with open(path, "r", encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                print(f"  [跳过] 第 {lineno} 行不是合法 JSON")
+                continue
+            samples.append(
+                Sample(
+                    id=str(d.get("id") or f"line{lineno}"),
+                    message=str(d.get("message") or ""),
+                    label=str(d.get("label") or "unlabeled"),
+                    weight=float(d.get("weight") or 0.0),
+                    expect_tool=d["expect_tool"] if "expect_tool" in d else _MISSING,
+                    expect_card=d.get("expect_card"),
+                    must_contain=[str(x) for x in (d.get("must_contain") or [])],
+                    trace_id=str(d.get("traceId") or ""),
+                )
+            )
+    return [s for s in samples if s.message]
+
+
+# 维度优先级：卡片/工具属于「做对事」，比「说对话」更容易机械判定，所以权重更高。
+# 归一化后 工具+事实 = 0.6/0.4，与内置用例的评分口径一致——否则两套分数没法对照。
+DIM_PRIORITY = {"card": 0.5, "tool": 0.3, "fact": 0.2}
+
+
+def evaluate_sample(sample: Sample, raw: CaseResult) -> tuple[float | None, dict[str, object]]:
+    """返回 (分数, 明细)。分数为 None 表示这条样本无法机械判分。"""
+    checks: dict[str, tuple[float, str]] = {}
+
+    if sample.expect_card:
+        checks["card"] = (
+            1.0 if sample.expect_card in raw.cards else 0.0,
+            sample.expect_card,
+        )
+
+    if sample.expect_tool is not _MISSING:
+        if sample.expect_tool is None:
+            checks["tool"] = (0.0 if raw.tool_calls else 1.0, "不该调")
+        else:
+            expected = str(sample.expect_tool)
+            checks["tool"] = (1.0 if expected in raw.tool_calls else 0.0, expected)
+
+    if sample.must_contain:
+        hits = sum(1 for w in sample.must_contain if w in raw.text)
+        checks["fact"] = (hits / len(sample.must_contain), f"{hits}/{len(sample.must_contain)}")
+
+    if not checks:
+        return None, {}
+
+    total_w = sum(DIM_PRIORITY[k] for k in checks)
+    score = sum(v * DIM_PRIORITY[k] for k, (v, _) in checks.items()) / total_w
+    detail = {k: d for k, (_, d) in checks.items()}
+    return score, detail
+
+
+async def run_dataset(args: argparse.Namespace) -> int:
+    samples = load_samples(args.dataset)
+    if not samples:
+        print(f"数据集为空或不存在可判分样本：{args.dataset}")
+        return 1
+
+    counted: dict[str, int] = {}
+    for s in samples:
+        counted[s.label] = counted.get(s.label, 0) + 1
+
+    print(f"{'=' * 68}\n反馈数据集 — {args.dataset}\n{'=' * 68}")
+    print(f"样本 {len(samples)} 条：" + "  ".join(f"{k}={v}" for k, v in sorted(counted.items())))
+
+    results: dict[str, list[tuple[Sample, CaseResult | None]]] = {}
+    for name, base, enabled in (
+        ("TS 实现", args.ts, args.only in (None, "ts")),
+        ("Python 实现", args.py, args.only in (None, "py")),
+    ):
+        if not enabled:
+            continue
+        print(f"\n  连接 {base} ...", flush=True)
+        rows: list[tuple[Sample, CaseResult | None]] = []
+        for s in samples:
+            raw = await call_agent(base, s.message)
+            if raw is not None:
+                raw.case = Case("", s.message, "", "")
+            rows.append((s, raw))
+        results[name] = rows
+
+    summary: dict[str, tuple[float, float]] = {}
+    all_unscorable: set[str] = set()
+    for name, rows in results.items():
+        print(f"\n{'-' * 68}\n{name}\n{'-' * 68}")
+        print(f"{'样本':<22}{'标注':<18}{'卡片':<10}{'工具':<12}{'事实':<8}分")
+        print("-" * 68)
+
+        scorable = 0
+        total = 0.0
+        weighted_num = 0.0
+        weighted_den = 0.0
+        unscorable: list[str] = []
+        failed = 0
+
+        for sample, raw in rows:
+            short = sample.id if len(sample.id) <= 20 else f"…{sample.id[-18:]}"
+            if raw is None:
+                failed += 1
+                print(f"{short:<22}{sample.label:<18}{'—':<10}{'—':<12}{'—':<8}未连通")
+                continue
+            score, detail = evaluate_sample(sample, raw)
+            tools = ",".join(raw.tool_calls) or "-"
+            cards = ",".join(raw.cards) or "-"
+            if score is None:
+                unscorable.append(sample.id)
+                all_unscorable.add(sample.id)
+                print(f"{short:<22}{sample.label:<18}{cards:<10}{tools:<12}{'—':<8}不可判分")
+                continue
+            scorable += 1
+            total += score
+            weighted_num += score * sample.weight
+            weighted_den += sample.weight
+            print(
+                f"{short:<22}{sample.label:<18}{cards:<10}{tools:<12}"
+                f"{str(detail.get('fact', '-')):<8}{score:.2f}"
+            )
+
+        avg = total / scorable if scorable else 0.0
+        wavg = weighted_num / weighted_den if weighted_den else 0.0
+        print("-" * 68)
+        print(f"可判分 {scorable} / {len(rows)}   均分 {avg:.2%}   加权均分 {wavg:.2%}")
+        if unscorable:
+            print(f"不可判分 {len(unscorable)} 条（样本里没有可机械核验的字段，需要人工看）")
+        if failed:
+            print(f"未连通 {failed} 条（服务不可用，不代表模型表现）")
+        summary[name] = (avg, wavg)
+
+    if len(summary) == 2:
+        print(f"\n{'=' * 68}\n对比\n{'=' * 68}")
+        for name, (avg, wavg) in summary.items():
+            print(f"  {name:<12} 均分 {avg:.2%}   加权 {wavg:.2%}")
+        gap = summary["Python 实现"][1] - summary["TS 实现"][1]
+        print(f"\n  加权差值 {gap:+.2%}")
+
+    if args.strict and all_unscorable:
+        print(f"\n  --strict：{len(all_unscorable)} 条样本不可判分，按失败处理")
+        return 1
+    return 0
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ts", default=DEFAULT_TS)
     parser.add_argument("--py", default=DEFAULT_PY)
     parser.add_argument("--only", choices=["ts", "py"], default=None)
     parser.add_argument("--cases", default="", help="按分组过滤，逗号分隔，如 order,kb")
+    parser.add_argument(
+        "--dataset",
+        default="",
+        help="反馈闭环导出的 jsonl（GET /api/dataset/export），用它替代内置用例",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="dataset 模式下遇到无法判分的样本直接失败（默认只统计不判分）",
+    )
     args = parser.parse_args()
+
+    if args.dataset:
+        return await run_dataset(args)
 
     cases = CASES
     if args.cases:
