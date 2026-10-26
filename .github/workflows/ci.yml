@@ -30,5 +30,5 @@ jobs:
           python-version: '3.11'
           cache: pip
           cache-dependency-path: services/agent-py/requirements.txt
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt pytest
       - run: python -m pytest tests -q
