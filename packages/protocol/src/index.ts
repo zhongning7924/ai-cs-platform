@@ -87,9 +87,32 @@ export type SseEvent =
         degraded?: boolean;
       };
     }
-  | { event: 'error'; data: { code: string; message: string } };
+  | { event: 'error'; data: { code: string; message: string } }
+  /**
+   * 转人工（ADR-0011）。单独一个事件而不是塞进 delta 文本：
+   * 前端要据此切换输入框语义、开始轮询人工消息，靠解析文案来判断太脆。
+   */
+  | {
+      event: 'handoff';
+      data: {
+        ticketId: string;
+        status: 'queued' | 'active' | 'closed';
+        /** 排队位次，1 起；已接入或已结束时为 0 */
+        position: number;
+        agentName: string | null;
+        reason?: string;
+      };
+    };
 
-export const SSE_EVENT_NAMES = ['meta', 'delta', 'tool', 'card', 'done', 'error'] as const;
+export const SSE_EVENT_NAMES = [
+  'meta',
+  'delta',
+  'tool',
+  'card',
+  'done',
+  'error',
+  'handoff',
+] as const;
 
 let seq = 0;
 

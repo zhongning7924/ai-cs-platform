@@ -14,7 +14,7 @@
     "build": "npm run build -w @cs/web-widget",
     "start": "npm run start -w @cs/gateway",
     "typecheck": "npm run typecheck -w @cs/protocol && npm run typecheck -w @cs/faq-engine && npm run typecheck -w @cs/kb-core && npm run typecheck -w @cs/agent && npm run typecheck -w @cs/gateway && npm run typecheck -w @cs/web-widget",
-    "test": "node --import tsx --test packages/faq-engine/test/*.test.ts packages/kb-core/test/*.test.ts packages/agent/test/*.test.ts",
+    "test": "node --import tsx --test packages/faq-engine/test/*.test.ts packages/kb-core/test/*.test.ts packages/agent/test/*.test.ts apps/gateway/test/*.test.ts",
     "kb:smoke": "npm run smoke -w @cs/kb-core",
     "kb:keepalive": "npm run keepalive -w @cs/kb-core",
     "kb": "npm run cli -w @cs/kb-core --"

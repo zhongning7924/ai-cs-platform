@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>客服工作台</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --line: #e5e7eb;
+    --text: #111827;
+    --muted: #6b7280;
+    --blue: #2563eb;
+    --blue-soft: #eff6ff;
+    --red: #dc2626;
+    --amber: #b45309;
+    --green: #047857;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  .stat { font-size: 12px; color: var(--muted); }
+  .stat b { color: var(--text); font-weight: 600; }
+  input, textarea, button { font-family: inherit; font-size: 13px; }
+  #token {
+    width: 200px; padding: 5px 8px; border: 1px solid var(--line);
+    border-radius: 6px; outline: none;
+  }
+  #token:focus { border-color: var(--blue); }
+  main { display: flex; flex: 1; min-height: 0; }
+  #queue {
+    width: 300px; min-width: 260px; background: var(--panel);
+    border-right: 1px solid var(--line); overflow-y: auto;
+  }
+  .qitem {
+    padding: 10px 12px; border-bottom: 1px solid var(--line);
+    cursor: pointer; display: flex; flex-direction: column; gap: 4px;
+  }
+  .qitem:hover { background: #fafafa; }
+  .qitem.on { background: var(--blue-soft); border-left: 3px solid var(--blue); padding-left: 9px; }
+  .qitem .row { display: flex; align-items: center; gap: 6px; }
+  .qitem .preview {
+    color: var(--muted); font-size: 12px; line-height: 1.5;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tag {
+    font-size: 11px; padding: 1px 6px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+  }
+  .tag.queued { color: var(--amber); border-color: #fcd34d; background: #fffbeb; }
+  .tag.active { color: var(--green); border-color: #a7f3d0; background: #ecfdf5; }
+  #detail { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #empty { flex: 1; display: grid; place-items: center; color: var(--muted); }
+  .head {
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .head .who { font-weight: 600; }
+  .head .spacer { flex: 1; }
+  .body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .ctx {
+    background: #fffdf5; border: 1px dashed #fcd34d; border-radius: 8px;
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .ctx .t { font-size: 11px; color: var(--amber); font-weight: 600; }
+  .ctx .turn { font-size: 12px; line-height: 1.6; color: #44403c; }
+  .ctx .turn b { font-weight: 600; color: #292524; }
+  .msg { display: flex; }
+  .msg .bubble {
+    max-width: 70%; padding: 8px 11px; border-radius: 10px;
+    line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  }
+  .msg.user { justify-content: flex-start; }
+  .msg.user .bubble { background: var(--panel); border: 1px solid var(--line); }
+  .msg.agent { justify-content: flex-end; }
+  .msg.agent .bubble { background: var(--blue); color: #fff; }
+  .msg.system { justify-content: center; }
+  .msg.system .bubble { background: transparent; color: var(--muted); font-size: 11px; padding: 0; }
+  footer { padding: 10px 16px; background: var(--panel); border-top: 1px solid var(--line); }
+  footer textarea {
+    width: 100%; min-height: 64px; max-height: 160px; resize: vertical;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; outline: none;
+  }
+  footer textarea:focus { border-color: var(--blue); }
+  footer .actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  footer .spacer { flex: 1; }
+  button {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  button:hover { background: #fafafa; }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  button.primary:hover { background: #1d4ed8; }
+  button.danger { color: var(--red); border-color: #fecaca; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #hint { font-size: 12px; color: var(--muted); }
+  #hint.err { color: var(--red); }
+</style>
+</head>
+<body>
+<header>
+  <h1>客服工作台</h1>
+  <span class="stat">排队 <b id="s-queued">0</b></span>
+  <span class="stat">进行中 <b id="s-active">0</b></span>
+  <span class="stat">平均等待 <b id="s-wait">—</b></span>
+  <span class="spacer"></span>
+  <input id="agent-name" placeholder="我的名字" style="width:110px" />
+  <input id="token" type="password" placeholder="Admin Token" />
+  <button id="save-token">保存</button>
+  <span id="hint">未连接</span>
+</header>
+
+<main>
+  <div id="queue"><div id="empty" style="height:120px">暂无待接入会话</div></div>
+  <div id="detail">
+    <div id="empty">选择左侧会话开始接待</div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    token: sessionStorage.getItem('cs-admin-token') || '',
+    agentName: localStorage.getItem('cs-agent-name') || '',
+    list: [],
+    current: null,
+    detail: null,
+    noticeSeq: 0,
+  };
+
+  const fmtSec = (s) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 ? ` ${s % 60}s` : ''}`);
+
+  function hint(text, isErr) {
+    const el = $('hint');
+    el.textContent = text;
+    el.className = isErr ? 'err' : '';
+  }
+
+  async function api(path, init = {}) {
+    const res = await fetch(path, {
+      ...init,
+      headers: {
+        'content-type': 'application/json',
+        ...(state.token ? { 'x-admin-token': state.token } : {}),
+        ...(init.headers || {}),
+      },
+    });
+    let body = null;
+    try { body = await res.json(); } catch { /* 空响应 */ }
+    if (!res.ok) {
+      const err = new Error((body && body.message) || (body && body.error) || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return body;
+  }
+
+  function renderQueue() {
+    const box = $('queue');
+    if (!state.list.length) {
+      box.innerHTML = '<div id="empty" style="height:120px">暂无待接入会话</div>';
+      return;
+    }
+    box.innerHTML = '';
+    for (const item of state.list) {
+      const el = document.createElement('div');
+      el.className = 'qitem' + (state.current === item.id ? ' on' : '');
+      el.onclick = () => select(item.id);
+      const row = document.createElement('div');
+      row.className = 'row';
+      const tag = document.createElement('span');
+      tag.className = 'tag ' + item.status;
+      tag.textContent = item.status === 'queued' ? `排队 ${fmtSec(item.waitingSec)}` : `接待中 · ${item.agentName || ''}`;
+      const label = document.createElement('span');
+      label.className = 'tag';
+      label.textContent = item.reasonLabel;
+      row.append(tag, label);
+      const preview = document.createElement('div');
+      preview.className = 'preview';
+      preview.textContent = item.preview || item.triggerText;
+      el.append(row, preview);
+      box.append(el);
+    }
+  }
+
+  function renderDetail() {
+    const box = $('detail');
+    const d = state.detail;
+    if (!d) {
+      box.innerHTML = '<div id="empty">选择左侧会话开始接待</div>';
+      return;
+    }
+    const t = d.ticket;
+    box.innerHTML = '';
+
+    const head = document.createElement('div');
+    head.className = 'head';
+    head.innerHTML = `
+      <span class="who">${t.sessionId}</span>
+      <span class="tag ${t.status}">${t.status === 'queued' ? '排队中' : t.status === 'active' ? '接待中' : '已结束'}</span>
+      <span class="tag">${d.reasonLabel}</span>
+      ${t.agentName ? `<span class="stat">坐席 <b>${t.agentName}</b></span>` : ''}
+      <span class="spacer"></span>`;
+    if (t.status === 'queued') {
+      const btn = document.createElement('button');
+      btn.className = 'primary';
+      btn.textContent = '接入会话';
+      btn.onclick = () => claim(t.id);
+      head.append(btn);
+    }
+    if (t.status === 'active') {
+      for (const [label, value, cls] of [['已解决', 'resolved', 'primary'], ['未解决', 'unresolved', ''], ['用户离开', 'abandoned', 'danger']]) {
+        const btn = document.createElement('button');
+        btn.className = cls;
+        btn.textContent = label;
+        btn.onclick = () => close(t.id, value);
+        head.append(btn);
+      }
+    }
+    box.append(head);
+
+    const body = document.createElement('div');
+    body.className = 'body';
+
+    if (t.context && t.context.length) {
+      const ctx = document.createElement('div');
+      ctx.className = 'ctx';
+      const title = document.createElement('div');
+      title.className = 't';
+      title.textContent = '转接前 AI 对话（供参考，不要照读）';
+      ctx.append(title);
+      for (const turn of t.context) {
+        const p = document.createElement('div');
+        p.className = 'turn';
+        p.innerHTML = `<b>客户：</b>${escapeHtml(turn.question)}<br><b>AI：</b>${escapeHtml(turn.answer)}`;
+        ctx.append(p);
+      }
+      body.append(ctx);
+    }
+
+    for (const m of t.messages) {
+      const row = document.createElement('div');
+      row.className = 'msg ' + m.role;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = m.role === 'system' ? `— ${m.text} —` : m.text;
+      row.append(bubble);
+      body.append(row);
+    }
+
+    if (!t.messages.length) {
+      const p = document.createElement('div');
+      p.className = 'msg system';
+      p.innerHTML = '<div class="bubble">还没有消息，接入后先看上面的转接原因</div>';
+      body.append(p);
+    }
+
+    box.append(body);
+
+    const footer = document.createElement('footer');
+    footer.innerHTML = `
+      <textarea id="reply" placeholder="${t.status === 'active' ? '输入回复，Enter 发送，Shift+Enter 换行' : '接入后才能回复'}" ${t.status === 'active' ? '' : 'disabled'}></textarea>
+      <div class="actions">
+        <span id="reply-hint"></span>
+        <span class="spacer"></span>
+        <button class="primary" id="send" ${t.status === 'active' ? '' : 'disabled'}>发送</button>
+      </div>`;
+    box.append(footer);
+
+    const ta = $('reply');
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        send(t.id);
+      }
+    });
+    $('send').onclick = () => send(t.id);
+
+    // 贴到底部：坐席最关心最新一句
+    body.scrollTop = body.scrollHeight;
+    if (t.status === 'active') ta.focus();
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  async function refreshQueue() {
+    try {
+      const data = await api('/api/handoff/queue');
+      state.list = data.items;
+      $('s-queued').textContent = data.stats.queued;
+      $('s-active').textContent = data.stats.active;
+      $('s-wait').textContent = data.stats.avgWaitMs == null ? '—' : fmtSec(Math.round(data.stats.avgWaitMs / 1000));
+      renderQueue();
+      hint(`已连接 · ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`);
+    } catch (err) {
+      hint(err.status === 401 ? 'Token 不正确' : `连接失败：${err.message}`, true);
+    }
+  }
+
+  async function select(id) {
+    state.current = id;
+    renderQueue();
+    await refreshDetail();
+  }
+
+  async function refreshDetail() {
+    if (!state.current) return;
+    try {
+      state.detail = await api('/api/handoff/' + encodeURIComponent(state.current));
+      renderDetail();
+    } catch (err) {
+      if (err.status === 404) {
+        state.current = null;
+        state.detail = null;
+        renderDetail();
+      }
+      hint(err.message, true);
+    }
+  }
+
+  async function claim(id) {
+    try {
+      await api(`/api/handoff/${encodeURIComponent(id)}/claim`, {
+        method: 'POST',
+        body: JSON.stringify({ agentName: state.agentName }),
+      });
+      await refreshDetail();
+      await refreshQueue();
+    } catch (err) {
+      hint(err.message, true);
+      await refreshDetail();
+    }
+  }
+
+  async function send(id) {
+    const ta = $('reply');
+    const text = (ta.value || '').trim();
+    if (!text) return;
+    const btn = $('send');
+    btn.disabled = true;
+    try {
+      await api(`/api/handoff/${encodeURIComponent(id)}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ text, agentName: state.agentName }),
+      });
+      ta.value = '';
+      await refreshDetail();
+    } catch (err) {
+      hint(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function close(id, resolution) {
+    try {
+      await api(`/api/handoff/${encodeURIComponent(id)}/close`, {
+        method: 'POST',
+        body: JSON.stringify({ resolution }),
+      });
+      state.current = null;
+      state.detail = null;
+      renderDetail();
+      await refreshQueue();
+      hint('会话已结束，客户回到 AI 接待');
+    } catch (err) {
+      hint(err.message, true);
+    }
+  }
+
+  $('token').value = state.token;
+  $('agent-name').value = state.agentName;
+  $('save-token').onclick = () => {
+    state.token = $('token').value.trim();
+    state.agentName = $('agent-name').value.trim();
+    sessionStorage.setItem('cs-admin-token', state.token);
+    // 名字存 localStorage 不存 session：关掉标签页再打开不用重填
+    localStorage.setItem('cs-agent-name', state.agentName);
+    refreshQueue();
+  };
+
+  refreshQueue();
+  setInterval(refreshQueue, 3000);
+  setInterval(refreshDetail, 2000);
+})();
+</script>
+</body>
+</html>

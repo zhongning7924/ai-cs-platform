@@ -374,3 +374,214 @@
     height: calc(100vh - 120px);
   }
 }
+
+/* ---------------- 消息评价（ADR-0009） ----------------
+   刻意做得轻：评价是「顺手做的事」，按钮一重，用户就不点了。
+   差评面板只在点👎之后展开，正常阅读路径上不占视觉重量。 */
+
+.cs-fb {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.cs-fb--done {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.cs-fb__row {
+  display: flex;
+  gap: 6px;
+}
+
+.cs-fb__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #6b7280;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.cs-fb__btn:hover {
+  color: #2563eb;
+  border-color: #bfdbfe;
+  background: #f5f9ff;
+}
+
+.cs-fb__btn.is-active {
+  color: #2563eb;
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.cs-fb__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cs-fb__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.cs-fb__hint {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.cs-fb__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cs-fb__chip {
+  padding: 4px 9px;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1.4;
+  color: #374151;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.cs-fb__chip.is-on {
+  color: #2563eb;
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.cs-fb__textarea {
+  width: 100%;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #111827;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+}
+
+.cs-fb__textarea:focus {
+  border-color: #2563eb;
+}
+
+.cs-fb__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cs-fb__cancel,
+.cs-fb__submit {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1.5;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.cs-fb__cancel {
+  color: #6b7280;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+}
+
+.cs-fb__submit {
+  color: #ffffff;
+  background: #2563eb;
+  border: 1px solid transparent;
+}
+
+.cs-fb__submit:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
+.cs-fb__error {
+  font-size: 11px;
+  color: #dc2626;
+}
+
+.cs-fb__thanks {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.cs-fb__undo {
+  padding: 0;
+  font-size: 11px;
+  color: #2563eb;
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---------------- 转人工（ADR-0011） ----------------
+   状态条放在列表上方而不是消息流里：它不是一句话，是一条常驻状态。
+   做成消息会随着滚动被推走，用户排队排到一半就看不见自己还在排队了。 */
+
+.cs-ho {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-bottom: 1px solid #dbeafe;
+}
+
+.cs-ho--active {
+  color: #047857;
+  background: #ecfdf5;
+  border-bottom-color: #a7f3d0;
+}
+
+.cs-ho__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: cs-blink 1s infinite;
+}
+
+.cs-ho__text {
+  min-width: 0;
+}
+
+/* 人工的回复和 AI 的回复要用颜色分得开：
+   同一个对话框里，用户需要一眼看出"这句是人说的"。 */
+.cs-msg--agent .cs-msg__text {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.cs-msg--agent .cs-msg__avatar {
+  background: #d1fae5;
+  color: #047857;
+}

@@ -63,8 +63,14 @@ export function matchFaq(question: string, options: MatchOptions = {}): MatchRes
   return best;
 }
 
-/** 转人工意图识别（规则通道优先于 FAQ 匹配） */
-const TRANSFER_PATTERN = /人工|找人|投诉|举报|骂|差评/;
+/**
+ * 转人工意图识别（规则通道优先于 FAQ 匹配）。
+ *
+ * 「找个人」「要个人」这类口语必须覆盖：用户越着急越不会说标准的「转人工」，
+ * 只认「人工」两个字会让最需要转接的那批人被静默漏掉。
+ * 但「客服」单独不算——「客服电话多少」是知识类问题，该走 FAQ。
+ */
+const TRANSFER_PATTERN = /人工|真人|找人|找个人|要个人|投诉|举报|骂|差评/;
 
 export function isTransferRequest(question: string): boolean {
   return TRANSFER_PATTERN.test(question);
