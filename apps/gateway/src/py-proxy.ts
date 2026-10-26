@@ -16,6 +16,11 @@ export interface PythonProxyResult {
   toolCalls: string[];
   degraded: boolean;
   firstTokenMs: number;
+  /** 路由分诊维度（ADR-0008）。落盘要用：没有这三个字段，
+   *  数据资产里就分不清「谁答的、凭什么分的、用了什么技能」，只看得到一段文本。 */
+  agent?: string;
+  skill?: string;
+  route?: string;
 }
 
 export interface PythonProxyInput {
@@ -109,9 +114,15 @@ function collect(frame: string, result: PythonProxyResult, t0: number): void {
       planner?: string;
       toolCalls?: string[];
       degraded?: boolean;
+      agent?: string;
+      skill?: string;
+      route?: string;
     };
     result.planner = data.planner ?? 'python';
     result.toolCalls = data.toolCalls ?? [];
     result.degraded = Boolean(data.degraded);
+    result.agent = data.agent;
+    result.skill = data.skill;
+    result.route = data.route;
   }
 }
