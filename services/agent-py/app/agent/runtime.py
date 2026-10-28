@@ -26,6 +26,7 @@ from .types import (
     EndEvent,
     PendingConfirm,
     PlannerContext,
+    PlannerOverrides,
     ReplyDecision,
     RunMeta,
     ToolCallDecision,
@@ -103,11 +104,16 @@ class AgentRuntime:
             self._logger(message)
 
     async def run(
-        self, question: str, *, session_id: str, namespace: str = "personal"
+        self,
+        question: str,
+        *,
+        session_id: str,
+        namespace: str = "personal",
+        overrides: PlannerOverrides | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """运行一轮对话。任何内部异常都以兜底文案收尾，绝不把半截流抛给调用方。"""
         queue = EventQueue()
-        task = asyncio.create_task(self._execute(question, session_id, namespace, queue))
+        task = asyncio.create_task(self._execute(question, session_id, namespace, overrides, queue))
         try:
             async for event in queue.drain():
                 yield event
@@ -116,10 +122,15 @@ class AgentRuntime:
                 task.cancel()
 
     async def _execute(
-        self, question: str, session_id: str, namespace: str, queue: EventQueue
+        self,
+        question: str,
+        session_id: str,
+        namespace: str,
+        overrides: PlannerOverrides | None,
+        queue: EventQueue,
     ) -> None:
         try:
-            await self._loop(question, session_id, namespace, queue)
+            await self._loop(question, session_id, namespace, overrides, queue)
         except Exception as err:  # noqa: BLE001 - 兜底是设计意图
             log.exception("agent 执行失败，改为兜底回复")
             await self._typewriter(
@@ -129,7 +140,14 @@ class AgentRuntime:
         finally:
             queue.close()
 
-    async def _loop(self, question: str, session_id: str, namespace: str, queue: EventQueue) -> None:
+    async def _loop(
+        self,
+        question: str,
+        session_id: str,
+        namespace: str,
+        overrides: PlannerOverrides | None,
+        queue: EventQueue,
+    ) -> None:
         memory = self._memory
         meta = RunMeta(steps=0, tool_calls=[], planner=self._planner.name, degraded=False)
 
@@ -173,7 +191,9 @@ class AgentRuntime:
             meta.steps = step + 1
             try:
                 decision = await planner.next(
-                    self._planner_ctx(question, session_id, observations, step, queue, active, meta)
+                    self._planner_ctx(
+                        question, session_id, observations, step, queue, active, meta, overrides
+                    )
                 )
             except Exception as err:  # noqa: BLE001
                 if planner is self._planner and self._fallback is not None:
@@ -356,6 +376,7 @@ class AgentRuntime:
         queue: EventQueue,
         active: "ActiveSkill | None" = None,
         meta: RunMeta | None = None,
+        overrides: PlannerOverrides | None = None,
     ) -> PlannerContext:
         specs = self._registry.specs()
         if active is not None and active.skill.tools:
@@ -371,6 +392,7 @@ class AgentRuntime:
             observations=observations,
             step=step,
             skill=active,
+            overrides=overrides,
             meta=meta,
             on_delta=lambda text: queue.push(DeltaEvent(text=text)),
         )

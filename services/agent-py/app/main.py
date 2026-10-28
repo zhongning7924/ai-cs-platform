@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .agent.runtime import AgentRuntime
-from .agent.types import CardEvent, DeltaEvent, EndEvent, ToolEvent
+from .agent.types import CardEvent, DeltaEvent, EndEvent, PlannerOverrides, ToolEvent
 from .assembly import build_service
 from .config import get_settings
 from .schemas import ChatRequest, ChatResponseDone, create_id, sse_frame
@@ -88,8 +88,17 @@ async def chat(req: ChatRequest) -> StreamingResponse:
         reply_card = None
         meta = ChatResponseDone(message_id=message_id, planner=runtime._planner.name)
 
+        overrides = PlannerOverrides(
+            persona=(req.persona or "").strip() or None,
+            model=(req.model or "").strip() or None,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
+        )
         async for event in runtime.run(
-            question, session_id=session_id, namespace=settings.kb_namespace
+            question,
+            session_id=session_id,
+            namespace=settings.kb_namespace,
+            overrides=overrides,
         ):
             if isinstance(event, DeltaEvent):
                 if not first_ms:

@@ -22,8 +22,14 @@ from .types import (
 
 log = logging.getLogger("agent.planner")
 
-DEFAULT_AGENT_SYSTEM_PROMPT = """你是企业智能客服坐席。用简体中文回答，口语化、简洁、分点。
-工具选择规则（严格执行）：
+DEFAULT_PERSONA = (
+    "你是企业智能客服坐席。用简体中文回答，口语化、简洁、分点。"
+)
+
+# 护栏硬规则：防幻觉 / 防工具调用泄漏 / 防空承诺。
+# 无论后台怎么改人设（persona），这一段永远追加在最后，不可被覆盖——
+# 否则后台一次配置错误就能让模型开始编数据、把工具调用写成文字发给客户。
+GUARDRAILS = """工具选择规则（严格执行）：
 1. 知识类问题——政策、流程、规范、内部资料、"能不能/怎么/是否可以"类问题 → 必须先调 kb_search（query 传精炼后的问题）；禁止调 query_order；
 2. 仅当用户明确要求查询订单、给出订单号或问物流时 → 调 query_order（orderId 传订单号，如 CS1001）；禁止把普通问题当订单号；
 3. 用户明确要求投诉、人工处理、创建工单、报修、反馈问题待解决 → 必须调 create_ticket（title 概括诉求，detail 补充细节）；
@@ -41,6 +47,8 @@ DEFAULT_AGENT_SYSTEM_PROMPT = """你是企业智能客服坐席。用简体中�
 9. 禁止向用户旁白工具调用过程（例如「调用 coupon_status 获取您的优惠券信息」）——需要数据就直接调用，拿到结果后只讲结果；
 10. 禁止只回一句「我查一下 / 让我确认一下 / 稍等」就结束本轮——要么真的调用工具取证，要么直接给出结论。
     用户看不到你的内部动作，一句空承诺等于这一轮什么都没做。"""
+
+DEFAULT_AGENT_SYSTEM_PROMPT = DEFAULT_PERSONA + GUARDRAILS
 
 _TAIL_TEMPLATE = "\n当前可用工具：{tools}。只能调用这里列出的工具。"
 
@@ -218,24 +226,26 @@ class LlmPlanner:
         *,
         temperature: float = 0.3,
         max_tokens: int = 1024,
-        system_prompt: str | None = None,
+        persona: str | None = None,
         client: AsyncOpenAI | None = None,
     ) -> None:
         self.name = f"llm:{model}"
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._system_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
+        # persona 是"默认人设"，可被每轮请求的 ctx.persona 覆盖；护栏永远追加
+        self._persona = persona or DEFAULT_PERSONA
         self._client = client or AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=60.0)
 
     def _system_message(self, ctx: PlannerContext) -> str:
-        """系统提示 = 通用规则 + 坐席边界 + 技能指令 + 当前工具清单。
+        """系统提示 = 人设 + 护栏 + 坐席边界 + 技能指令 + 当前工具清单。
 
-        顺序有讲究：坐席在最前（它决定身份和工具白名单），技能在后
-        （它只在本坐席的职责范围内补细节）。反过来会让 7B 先看到技能细节、
-        忽略坐席边界，退化成「谁都能答」。
+        顺序有讲究：人设与坐席在最前（决定身份和工具白名单），护栏次之
+        （无论人设怎么改都不可删），技能在后（只在坐席职责内补细节），
+        工具清单收尾。反过来会让 7B 先看到技能细节、忽略坐席边界，退化
+        成「谁都能答」；把护栏放最前则会让后台改的人设失去效力。
         """
-        parts = [self._system_prompt]
+        parts = [self._persona_for(ctx), GUARDRAILS]
         if ctx.agent is not None:
             parts.append(ctx.agent.prompt_block())
         if ctx.skill is not None:
@@ -243,6 +253,12 @@ class LlmPlanner:
         if ctx.tools:
             parts.append(_TAIL_TEMPLATE.format(tools="、".join(t.name for t in ctx.tools)))
         return "".join(parts)
+
+    def _persona_for(self, ctx: PlannerContext) -> str:
+        ov = ctx.overrides
+        if ov is not None and ov.persona and ov.persona.strip():
+            return ov.persona.strip()
+        return self._persona
 
     def _messages(self, ctx: PlannerContext) -> list[dict[str, Any]]:
         """组装消息。
@@ -283,12 +299,19 @@ class LlmPlanner:
         messages = self._messages(ctx)
         tools = [t.openai_tool() for t in ctx.tools]
 
+        ov = ctx.overrides
         stream = await self._client.chat.completions.create(
-            model=self._model,
+            model=(ov.model if ov is not None and ov.model else self._model),
             messages=messages,
             tools=tools or None,
-            temperature=self._temperature,
-            max_tokens=self._max_tokens,
+            temperature=(
+                ov.temperature
+                if ov is not None and ov.temperature is not None
+                else self._temperature
+            ),
+            max_tokens=(
+                ov.max_tokens if ov is not None and ov.max_tokens is not None else self._max_tokens
+            ),
             stream=True,
         )
 

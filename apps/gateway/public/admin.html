@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 客服管理后台</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --line: #e5e7eb;
+    --text: #111827; --muted: #6b7280; --blue: #2563eb; --blue-soft: #eff6ff;
+    --green: #047857; --amber: #b45309; --red: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; color: var(--text); background: var(--bg); height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  input, textarea, button, select { font-family: inherit; font-size: 13px; }
+  #token { width: 200px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; outline: none; }
+  #token:focus { border-color: var(--blue); }
+  button { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+  button.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #hint { font-size: 12px; color: var(--muted); }
+  #hint.err { color: var(--red); }
+  nav { display: flex; gap: 0; background: var(--panel); border-bottom: 1px solid var(--line); padding: 0 16px; }
+  nav button { border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 16px; color: var(--muted); background: none; }
+  nav button.on { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+  main { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+  section { display: none; }
+  section.on { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; margin: 0 0 12px; font-weight: 600; }
+  label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+  textarea, input[type=text], input[type=number] { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; outline: none; }
+  textarea { min-height: 120px; resize: vertical; line-height: 1.6; }
+  textarea:focus, input:focus { border-color: var(--blue); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .field { margin-bottom: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .tip { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .kv .cell { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .kv .k { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .kv .v { font-size: 13px; font-weight: 600; word-break: break-all; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: #fafafa; }
+  .trace { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel); }
+  .trace .q { font-weight: 600; margin-bottom: 4px; }
+  .trace .a { color: #374151; line-height: 1.5; margin-bottom: 6px; }
+  .trace .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .tag.up { color: var(--green); border-color: #a7f3d0; background: #ecfdf5; }
+  .tag.down { color: var(--red); border-color: #fecaca; background: #fef2f2; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI 客服管理后台</h1>
+  <nav id="nav">
+    <button data-tab="config" class="on">机器人配置</button>
+    <button data-tab="health">运行状态</button>
+    <button data-tab="traces">咨询记录</button>
+  </nav>
+  <span class="spacer"></span>
+  <input id="token" type="password" placeholder="Admin Token" />
+  <button id="save-token">保存</button>
+  <span id="hint"></span>
+</header>
+
+<main>
+  <section id="tab-config" class="on">
+    <div class="card">
+      <h2>客服人设（persona）</h2>
+      <label>品牌、语气、业务范围。留空则使用内置默认人设。</label>
+      <textarea id="persona" placeholder="例：你是「某某品牌」的售后客服小美，语气亲切专业，主营家用沙发，售后政策为 7 天无理由退换、一年质保。"></textarea>
+      <div class="tip" style="margin-top:8px">
+        提示：防幻觉、防工具调用泄漏等<b>护栏规则由系统自动追加、不可被覆盖</b>——你改人设不会破坏安全底线，但也不要用「可以编造数据」之类的表述。
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>模型生成参数（可选覆盖）</h2>
+      <div class="grid">
+        <div class="field">
+          <label>模型名（留空 = 用部署默认）</label>
+          <input id="model" type="text" placeholder="Qwen/Qwen2.5-7B-Instruct" />
+        </div>
+        <div class="field">
+          <label>温度 temperature（0~2）</label>
+          <input id="temperature" type="number" step="0.1" min="0" max="2" placeholder="0.3" />
+        </div>
+        <div class="field">
+          <label>最大输出 maxTokens（64~4096）</label>
+          <input id="maxTokens" type="number" step="1" min="64" max="4096" placeholder="1024" />
+        </div>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <button class="primary" id="save-config">保存配置</button>
+        <button id="reset-config">清空覆盖（回到部署默认）</button>
+        <span class="tip" id="config-status"></span>
+      </div>
+      <div class="tip" style="margin-top:10px">
+        这些参数<b>保存后立即生效</b>（逐请求透传，无需重启）。模型地址 / API Key 属部署级安全配置，不在后台修改——见 .env 的 LLM_BASE_URL 等。
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-health">
+    <div class="card">
+      <h2>智能层运行状态</h2>
+      <div class="kv" id="health-box"><div class="empty">加载中…</div></div>
+    </div>
+  </section>
+
+  <section id="tab-traces">
+    <div class="card">
+      <h2>最近咨询记录</h2>
+      <div class="row" style="margin-bottom:12px">
+        <select id="rating-filter">
+          <option value="">全部</option>
+          <option value="none">未评价</option>
+          <option value="up">好评</option>
+          <option value="down">差评</option>
+        </select>
+        <button id="refresh-traces">刷新</button>
+      </div>
+      <div id="traces-box"><div class="empty">加载中…</div></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = { token: sessionStorage.getItem('cs-admin-token') || '' };
+
+  function hint(text, isErr) {
+    const el = $('hint');
+    el.textContent = text;
+    el.className = isErr ? 'err' : '';
+  }
+
+  async function api(path, init = {}) {
+    const res = await fetch(path, {
+      ...init,
+      headers: {
+        'content-type': 'application/json',
+        ...(state.token ? { 'x-admin-token': state.token } : {}),
+        ...(init.headers || {}),
+      },
+    });
+    let body = null;
+    try { body = await res.json(); } catch {}
+    if (!res.ok) {
+      const err = new Error((body && body.error) || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return body;
+  }
+
+  /* ---- token ---- */
+  $('token').value = state.token;
+  $('save-token').onclick = () => {
+    state.token = $('token').value.trim();
+    sessionStorage.setItem('cs-admin-token', state.token);
+    hint('已保存');
+    loadAll();
+  };
+
+  /* ---- tab ---- */
+  document.querySelectorAll('#nav button').forEach((b) => {
+    b.onclick = () => {
+      document.querySelectorAll('#nav button').forEach((x) => x.classList.remove('on'));
+      document.querySelectorAll('main section').forEach((s) => s.classList.remove('on'));
+      b.classList.add('on');
+      $('tab-' + b.dataset.tab).classList.add('on');
+      if (b.dataset.tab === 'health') loadHealth();
+      if (b.dataset.tab === 'traces') loadTraces();
+    };
+  });
+
+  /* ---- 配置 ---- */
+  async function loadConfig() {
+    try {
+      const c = await api('/api/admin/config');
+      $('persona').value = c.persona || '';
+      if (c.model) {
+        $('model').value = c.model.model || '';
+        $('temperature').value = c.model.temperature ?? '';
+        $('maxTokens').value = c.model.maxTokens ?? '';
+      }
+    } catch (e) { hint(e.message, true); }
+  }
+
+  function collectConfig() {
+    const body = { persona: $('persona').value.trim() };
+    const model = $('model').value.trim();
+    const temperature = $('temperature').value.trim();
+    const maxTokens = $('maxTokens').value.trim();
+    if (model || temperature || maxTokens) {
+      body.model = {
+        model: model || undefined,
+        temperature: temperature === '' ? undefined : Number(temperature),
+        maxTokens: maxTokens === '' ? undefined : Number(maxTokens),
+      };
+    } else {
+      body.model = null;
+    }
+    return body;
+  }
+
+  $('save-config').onclick = async () => {
+    try {
+      await api('/api/admin/config', { method: 'PUT', body: JSON.stringify(collectConfig()) });
+      $('config-status').textContent = '已保存，立即生效';
+      hint('配置已保存');
+    } catch (e) {
+      $('config-status').textContent = e.message;
+      hint(e.message, true);
+    }
+  };
+
+  $('reset-config').onclick = async () => {
+    try {
+      await api('/api/admin/config', { method: 'PUT', body: JSON.stringify({ persona: '', model: null }) });
+      $('persona').value = '';
+      $('model').value = ''; $('temperature').value = ''; $('maxTokens').value = '';
+      $('config-status').textContent = '已清空，回到部署默认';
+    } catch (e) { hint(e.message, true); }
+  };
+
+  /* ---- 健康 ---- */
+  async function loadHealth() {
+    const box = $('health-box');
+    try {
+      const h = await api('/api/admin/health');
+      if (h.status === 'unreachable') {
+        box.innerHTML = '<div class="empty">Python 智能层未启动（' + (h.error || '') + '）</div>';
+        return;
+      }
+      const cells = [
+        ['规划器 planner', h.planner || '-'],
+        ['模型 model', h.llm_model || h.model || '-'],
+        ['知识库就绪', h.kb_ready ? '是' : '否'],
+        ['集合 collection', h.collection || '-'],
+        ['混合检索 hybrid', h.hybrid ? '开' : '关'],
+        ['命名空间', h.namespace || '-'],
+      ];
+      const kvs = cells.map(([k, v]) => `<div class="cell"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+      const chips = (list, empty) => list && list.length
+        ? list.map((x) => `<span class="chip">${x}</span>`).join('')
+        : `<span class="tip">${empty}</span>`;
+      box.innerHTML = `<div class="kv">${kvs}</div>` +
+        `<div class="field" style="margin-top:12px"><label>坐席</label><div class="chips">${chips(h.agents, '单坐席')}</div></div>` +
+        `<div class="field"><label>工具</label><div class="chips">${chips(h.tools, '无')}</div></div>` +
+        `<div class="field"><label>技能</label><div class="chips">${chips(h.skills, '无')}</div></div>`;
+    } catch (e) { box.innerHTML = `<div class="empty">${e.message}</div>`; }
+  }
+
+  /* ---- 记录 ---- */
+  async function loadTraces() {
+    const box = $('traces-box');
+    try {
+      const rating = $('rating-filter').value;
+      const d = await api(`/api/traces?limit=50${rating ? '&rating=' + rating : ''}`);
+      if (!d.items.length) { box.innerHTML = '<div class="empty">暂无记录</div>'; return; }
+      box.innerHTML = d.items.map((t) => {
+        const fb = t.feedback
+          ? `<span class="tag ${t.feedback.rating}">${t.feedback.rating === 'up' ? '好评' : '差评'}</span>`
+          : `<span class="tag">未评价</span>`;
+        const tools = (t.toolCalls || []).map((x) => `<span class="tag">${x}</span>`).join('');
+        return `<div class="trace">
+          <div class="q">${esc(t.question)}</div>
+          <div class="a">${esc(t.answer)}</div>
+          <div class="meta">
+            <span class="tag">${esc(t.planner || '-')}</span>
+            ${t.agent ? `<span class="tag">${esc(t.agent)}</span>` : ''}
+            ${t.skill ? `<span class="tag">技能:${esc(t.skill)}</span>` : ''}
+            ${tools}
+            ${fb}
+            <span class="tip">${t.totalMs != null ? t.totalMs + 'ms' : ''}</span>
+            <span class="tip">${esc(t.channel || 'web')}</span>
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) { box.innerHTML = `<div class="empty">${e.message}</div>`; }
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  $('refresh-traces').onclick = loadTraces;
+  $('rating-filter').onchange = loadTraces;
+
+  function loadAll() { loadConfig(); }
+  loadAll();
+})();
+</script>
+</body>
+</html>

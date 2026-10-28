@@ -11,10 +11,13 @@ import {
 import { appendMessage, getOrCreateSession, sessionStats, type Session } from './session.js';
 import { generateReply, streamText } from './bot.js';
 import { agentMode, agentRuntime } from './agent.js';
-import { proxyToPython } from './py-proxy.js';
+import { proxyToPython, askPython } from './py-proxy.js';
 import { createTraceStore } from './data/store.js';
 import { mountDataRoutes } from './data/routes.js';
 import { adminGuard, createRateLimiter, originGuard, parseOrigins } from './guard.js';
+import { AdminConfigStore } from './admin/config.js';
+import { mountAdminRoutes } from './admin/routes.js';
+import { mountWechatRoutes, wechatConfigured } from './wechat.js';
 import { HandoffStore } from './handoff/store.js';
 import { mountHandoffRoutes } from './handoff/routes.js';
 import { detectImmediate, looksUnresolved } from './handoff/detect.js';
@@ -51,6 +54,12 @@ const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../var/data');
 const traceStore = createTraceStore(DATA_DIR);
+
+/**
+ * 管理配置（提示词人设 + 模型生成参数）。与反馈/工单共用 DATA_DIR，
+ * 落盘 admin-config.json，后台 /admin 可维护，对话时逐请求透传给智能层。
+ */
+const adminConfig = new AdminConfigStore(DATA_DIR);
 
 /**
  * 落盘是旁路，不是主链路：磁盘满 / 权限错不能把用户正在等的回复搞挂。
@@ -100,6 +109,25 @@ mountDataRoutes(app, traceStore, adminGuard(ADMIN_TOKEN));
 
 /** 转人工接口（ADR-0011）。同样必须在静态 catch-all 之前。 */
 mountHandoffRoutes(app, handoffStore, adminGuard(ADMIN_TOKEN));
+
+/** 管理后台 API（提示词 / 模型 / 健康聚合）。 */
+mountAdminRoutes(app, adminConfig, adminGuard(ADMIN_TOKEN));
+
+/**
+ * 微信公众号 / 服务号渠道（明文模式）。
+ * 无论是否配置都挂载路由——未配置时 /wechat 返回明确的 500 提示，
+ * 而不是落到静态 catch-all 返回 200（那会让微信的服务器验证误判为成功）。
+ * answer 回调复用 Python 智能层，openid 即 session_id，与网页挂件共享会话与转人工。
+ */
+mountWechatRoutes(app, {
+  answer: (sessionId, message, channel) =>
+    askPython(message, sessionId, channel, adminConfig.runtimeOverrides()),
+});
+if (wechatConfigured()) {
+  console.log('[gateway] 公众号渠道已启用: /wechat');
+} else {
+  console.log('[gateway] 公众号渠道未启用（缺 WECHAT_TOKEN / WECHAT_APPID / WECHAT_SECRET）');
+}
 
 /**
  * 把会话历史折成交接上下文。
@@ -400,6 +428,7 @@ app.post('/api/chat', async (req, res) => {
         traceId,
         res,
         t0,
+        ...adminConfig.runtimeOverrides(),
       });
       // 降级 / 「查不到」类回答不能就这么结束——没有出口的问题必须有人接
       const escalated = escalateIfUnresolved(res, session, question, py.text, py.degraded);
@@ -534,6 +563,22 @@ app.get('/console', (_req, res) => {
     return;
   }
   res.sendFile(consolePage);
+});
+
+/**
+ * 管理后台：单文件、零构建，/admin 打开即可维护提示词、模型参数、咨询记录。
+ * 与坐席台 /console 同源，共享 admin token（都在 sessionStorage）。
+ */
+const adminPage = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../public/admin.html',
+);
+app.get('/admin', (_req, res) => {
+  if (!existsSync(adminPage)) {
+    res.status(404).send('admin.html 未找到');
+    return;
+  }
+  res.sendFile(adminPage);
 });
 
 /**

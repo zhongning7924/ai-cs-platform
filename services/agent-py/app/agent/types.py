@@ -95,6 +95,21 @@ class PendingConfirm:
 
 
 @dataclass
+class PlannerOverrides:
+    """后台可热改的运行时覆盖（无需重启，逐请求透传）。
+
+    - persona：客服人设（品牌/语气/业务范围）。空用默认；护栏硬规则永远追加，不可覆盖。
+    - model / temperature / max_tokens：LLM 生成参数。都是 create() 的调用参数，
+      改它们不需要重连 client。base_url / api_key 属部署级安全边界，不在这里覆盖。
+    """
+
+    persona: str | None = None
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+@dataclass
 class ReplyDecision:
     text: str
     streamed: bool = False
@@ -126,6 +141,8 @@ class PlannerContext:
     skill: "ActiveSkill | None" = None
     # 路由到的坐席（身份隔离，限定工具白名单）
     agent: "ActiveAgent | None" = None
+    # 运行时覆盖（后台可热改，无需重启）。见 PlannerOverrides 字段注释
+    overrides: "PlannerOverrides | None" = None
     # 上报通道：规划器可写 agent / route / handoffs 等归因字段，runtime 原样带出
     meta: "RunMeta | None" = None
     on_delta: Any = None  # Callable[[str], None] | None

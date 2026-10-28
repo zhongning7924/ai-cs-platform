@@ -31,6 +31,11 @@ export interface PythonProxyInput {
   traceId: string;
   res: Response;
   t0: number;
+  /** 运行时覆盖（后台热改，无需重启）。见 AdminConfigStore.runtimeOverrides。 */
+  persona?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
 }
 
 /** 把 Python 服务的 SSE 帧逐帧转发给浏览器，同时旁路累计文本用于会话落库。
@@ -39,12 +44,22 @@ export interface PythonProxyInput {
  * 流中途出错则内部消化为 error 帧，不抛。
  */
 export async function proxyToPython(input: PythonProxyInput): Promise<PythonProxyResult> {
-  const { url, sessionId, message, channel, traceId, res, t0 } = input;
+  const { url, sessionId, message, channel, traceId, res, t0, persona, model, temperature, maxTokens } =
+    input;
 
   const upstream = await fetch(`${url.replace(/\/+$/, '')}/api/chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, message, channel, traceId }),
+    body: JSON.stringify({
+      sessionId,
+      message,
+      channel,
+      traceId,
+      persona,
+      model,
+      temperature,
+      maxTokens,
+    }),
   });
 
   if (!upstream.ok || !upstream.body) {
@@ -124,5 +139,52 @@ function collect(frame: string, result: PythonProxyResult, t0: number): void {
     result.agent = data.agent;
     result.skill = data.skill;
     result.route = data.route;
+  }
+}
+
+/**
+ * 无响应流的「要完整答案」版：调 Python 智能层，把 delta 累积成一段完整文本。
+ * 供公众号异步客服消息、后台试答等「不需要逐字下发」的场景复用。
+ * 连不上 / 流中断都返回空串（调用方自行决定兜底），不抛异常。
+ */
+export async function askPython(
+  message: string,
+  sessionId: string,
+  channel: string,
+  overrides: { persona?: string; model?: string; temperature?: number; maxTokens?: number } = {},
+): Promise<string> {
+  const url = (process.env.AGENT_PY_URL ?? 'http://127.0.0.1:8788').replace(/\/+$/, '');
+  try {
+    const upstream = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId, message, channel, ...overrides }),
+    });
+    if (!upstream.ok || !upstream.body) return '';
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let text = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let cut = buffer.indexOf('\n\n');
+      while (cut >= 0) {
+        const frame = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        const parsed = parseSseFrame(frame);
+        if (parsed?.event === 'delta') {
+          text += String((parsed.data as { text?: string }).text ?? '');
+        }
+        cut = buffer.indexOf('\n\n');
+      }
+    }
+    return text.trim();
+  } catch (err) {
+    console.warn(`[gateway] askPython 失败: ${(err as Error).message}`);
+    return '';
   }
 }

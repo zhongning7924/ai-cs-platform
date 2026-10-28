@@ -51,6 +51,12 @@ class ChatRequest(Wire):
     session_id: str | None = None
     message: str
     channel: ChannelType = "web"
+    # 后台可配置的客服人设（品牌/语气）。空则用默认人设；护栏硬规则不受其影响
+    persona: str | None = None
+    # 模型运行时覆盖（后台可热改，无需重启）。base_url/api_key 属部署级，不在此覆盖
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
     # 网关透传的链路 id，用于跨语言排查
     trace_id: str | None = Field(default=None, alias="traceId")
 

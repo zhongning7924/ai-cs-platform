@@ -1,6 +1,6 @@
 # ai-cs-platform
 
-开源 AI 客服系统，单仓库前后端俱全：网页挂件、接入网关、规则 FAQ 通道、多坐席智能体（TS + Python 双语言分层）、RAG 知识库、转人工坐席台、反馈闭环、私有化 Docker 交付。
+开源 AI 客服系统，单仓库前后端俱全：网页挂件、接入网关、规则 FAQ 通道、多坐席智能体（TS + Python 双语言分层）、RAG 知识库、转人工坐席台、反馈闭环、公众号渠道、可视化管理后台、私有化 Docker 交付。
 
 ## 已实现的能力
 
@@ -10,6 +10,8 @@
 - **MCP + Skills**：手写 JSON-RPC 2.0 over stdio 接入外部工具服务器；技能 = 触发词 + 注入指令 + 工具偏好
 - **转人工**：敏感诉求 / 用户要求 / 低置信三类触发，坐席台接单回复，人工期间不消耗模型（ADR-0011）
 - **反馈闭环**：挂件 👍/👎 → 落盘脱敏 → 看板统计 → 导出 jsonl 回灌评测（ADR-0009）
+- **公众号渠道**：微信公众号 / 服务号明文模式接入，`openid` 直连会话，5 秒被动回复约束下先回执再异步客服消息推送（ADR-0012）
+- **可视化管理后台**：`/admin` 单文件零构建，机器人人设与模型参数热改实时生效，无需重启（ADR-0012）
 - **私有化交付**：`deploy/` 一套 docker-compose，LLM / Embedding / Rerank 三端点独立配置，管理面 token + 来源白名单 + 限流（ADR-0010）
 
 > 架构起点是《AI 智能客服底座建设与快速部署实战手册》第五章，在此基础上已大幅超出原书范围。分层思想保留：**社区已有的取社区（React/Express/Qdrant），场景核心的自研发（协议、检索、智能体、坐席台）**。
@@ -38,9 +40,13 @@ ai-cs-platform/
 │   │       ├── session.ts #   会话管理（内存版，扩容前换 Redis）
 │   │       ├── py-proxy.ts#   Python 智能层透传（AGENT_BACKEND=py）
 │   │       ├── guard.ts   #   管理面 token / 来源白名单 / 限流（ADR-0010）
+│   │       ├── wechat.ts  #   公众号明文模式：签名验证 / 被动回复 / 客服消息（ADR-0012）
+│   │       ├── admin/     #   管理后台：人设与模型参数存储 / 校验 / 运行时覆盖（ADR-0012）
 │   │       ├── data/      #   反馈闭环：脱敏 / 事件溯源存储 / 数据集导出（ADR-0009）
 │   │       └── handoff/   #   转人工：状态机 / 触发判定 / 坐席接口（ADR-0011）
-│   │   └── public/console.html  # 坐席工作台（单文件零构建）
+│   │   └── public/
+│   │       ├── console.html  # 坐席工作台（单文件零构建）
+│   │       └── admin.html    # 管理后台（单文件零构建，人设/模型/状态/咨询记录）
 │   ├── web-widget/        # @cs/web-widget L1 网页挂件（React + Shadow DOM）
 │   │   ├── index.html     #   演示宿主页（模拟商家页面）
 │   │   └── src/widget/    #   mount(Shadow DOM) / api(SSE+轮询) / cards / feedback
@@ -53,7 +59,7 @@ ai-cs-platform/
 │       ├── skills/        #   技能注册表
 │       └── tools/         #   内置工具（kb_search / query_order / create_ticket）
 ├── deploy/                # 私有化交付：Dockerfile / docker-compose / 交付手册（ADR-0010）
-├── docs/adr/              # 架构决策记录（0001-0011）
+├── docs/adr/              # 架构决策记录（0001-0012）
 ├── docs/research/         # 选型调研
 ├── samples/kb-sources/    # 知识库示例文档
 ├── tsconfig.base.json
@@ -65,6 +71,8 @@ ai-cs-platform/
 | 层 | 模块 | 落地方式 | 状态 |
 | --- | --- | --- | --- |
 | L1 渠道层 | apps/web-widget | 自研（React + Shadow DOM 挂件） | 已实现 |
+| L1 渠道层 | gateway/wechat.ts | 公众号 / 服务号明文模式接入 | 已实现（ADR-0012） |
+| 运营面 | gateway/admin + admin.html | 人设与模型参数可视化热改 | 已实现（ADR-0012） |
 | L2 接入网关层 | apps/gateway | 自研核心（会话/路由/防护/转人工）+ Express | 已实现 |
 | L3 规则通道 | packages/faq-engine | 自研（高分直达，零 LLM 成本） | 已实现 |
 | L3 智能体 | packages/agent（TS）+ services/agent-py（Python） | 双实现同协议，`AGENT_BACKEND` 切换 | Python 为准，已实现 |
@@ -177,6 +185,40 @@ curl -s 'http://localhost:8787/api/chat/poll?sessionId=sess_x&afterSeq=0'
 工单落 `var/data/handoff.jsonl`（事件溯源，重启重放，落盘即脱敏）。配置了 `ADMIN_TOKEN` 后坐席接口全部需要它。
 详见 [ADR-0011](docs/adr/0011-human-handoff.md)。
 
+### 公众号渠道（ADR-0012）
+
+接入微信公众号 / 服务号（明文模式），用户发的消息由同一个智能体应答。`openid` 直接当会话 ID，跨渠道与网页挂件共用同一套人设、知识与转人工逻辑。
+
+```bash
+# 1. 配三件套（缺任一个 /wechat 返回 500 提示）
+#    WECHAT_TOKEN / WECHAT_APPID / WECHAT_SECRET
+# 2. 公众号后台「设置与开发 → 基本配置」填：
+#    服务器地址：https://你的域名/wechat   Token：填 WECHAT_TOKEN
+#    消息加解密方式选「明文模式」
+```
+
+微信被动回复有 5 秒超时：本系统先回「已收到」即时回执，答案走客服消息接口异步推送（48 小时内有效），不丢消息也不超时。
+
+### 管理后台（ADR-0012）
+
+`/admin` 单文件零构建，改完即时生效、无需重启：
+
+```bash
+open http://localhost:8787/admin
+# 配置了 ADMIN_TOKEN 后需在页面顶部填入 token（或用 ?token=）
+```
+
+可改的项（改动逐请求透传 Python 智能层，实时生效）：
+
+| 配置项 | 说明 |
+|---|---|
+| 客服人设 persona | 覆盖默认人设；**护栏规则永远追加、不可覆盖**（防幻觉/防泄漏） |
+| 模型 model | 规划器模型名，可热切换 |
+| temperature | 0~2 |
+| maxTokens | 64~4096 |
+
+`base_url` / `api_key` 仍走部署级环境变量，不会从页面泄露到越权修改。详见 [ADR-0012](docs/adr/0012-wechat-and-admin.md)。
+
 ### 测试与类型检查
 
 ```bash
@@ -195,7 +237,7 @@ npm run typecheck
 1. LLM 接入：new-api 网关 + Dify 编排，替换兜底话术为真实长尾应答；
 2. 评测集扩充至 200 条标注，建立 POC 基准分（解决率 / 首字延迟 / Top-5 召回）；
 3. 坐席台增强：自动分配、坐席在线状态、排队超时兜底（当前是抢单制，见 ADR-0011 已知限制）；
-4. 渠道扩展：微信生态适配器（验证"新渠道 ≤3 人日"验收标准）；
+4. ~~渠道扩展：微信生态适配器~~ ✅ 已落地（公众号 / 服务号明文模式，ADR-0012）；下一步可扩展企业微信 / 抖音 / 飞书；
 5. 挂件 SDK 化：vite lib 构建 IIFE bundle + `window.CSWidget.mount()`；
 6. 会话存储迁 Redis，私有化一键部署包（docker-compose）。
 
@@ -211,3 +253,8 @@ npm run typecheck
 | `AGENT_MAX_STEPS` | `4` | 单轮最大「规划→行动」循环步数 |
 | `FAQ_DIRECT_MIN_SCORE` | `0.8` | FAQ 直达分数下限，低分命中放行给智能体 |
 | `DATA_DIR` | `var/data` | 对话与反馈落盘目录（JSONL）；容器部署时挂卷 |
+| `WECHAT_TOKEN` | 空 | 公众号服务器 Token（配齐三件套才启用 `/wechat`） |
+| `WECHAT_APPID` | 空 | 公众号 AppID |
+| `WECHAT_SECRET` | 空 | 公众号 AppSecret（换取 access_token 推客服消息） |
+
+管理后台（`/admin`）的人设 / 模型参数不走 `.env`，改在页面里实时保存到 `var/data/admin-config.json`。

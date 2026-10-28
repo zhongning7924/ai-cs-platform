@@ -43,37 +43,43 @@ class Service:
 
 
 def build_kb(settings: Settings) -> tuple[Retriever | None, str | None]:
-    """知识库可选装配：密钥不全就返回 None，kb_search 工具随之不注册。"""
+    """知识库可选装配：密钥不全，或初始化失败（Qdrant 连不上 / 网络抖动），
+    都返回 None，kb_search 工具随之不注册——服务降级为「无知识库」而非崩溃。
+    私有化内网、Qdrant Cloud 抖动、客户漏配时，这一条就是「还能用」和「起不来」的分界线。"""
     if not settings.kb_ready:
         log.warning("kb_search 未注册（缺 QDRANT_URL / EMBEDDING_API_KEY）")
         return None, None
 
-    store = VectorStore(settings.qdrant_url, settings.qdrant_api_key)
-    store.ensure_collection(settings.collection, settings.embedding_dimensions)
+    try:
+        store = VectorStore(settings.qdrant_url, settings.qdrant_api_key)
+        store.ensure_collection(settings.collection, settings.embedding_dimensions)
 
-    client = AsyncOpenAI(
-        base_url=settings.effective_embedding_url,
-        api_key=settings.effective_embedding_key,
-    )
-    embedder = Embedder(client, settings.embedding_model, settings.embedding_dimensions)
-    reranker = Reranker(
-        settings.effective_rerank_key, settings.effective_rerank_url, settings.reranker_model
-    )
+        client = AsyncOpenAI(
+            base_url=settings.effective_embedding_url,
+            api_key=settings.effective_embedding_key,
+        )
+        embedder = Embedder(client, settings.embedding_model, settings.embedding_dimensions)
+        reranker = Reranker(
+            settings.effective_rerank_key, settings.effective_rerank_url, settings.reranker_model
+        )
 
-    retriever = Retriever(
-        embedder,
-        store,
-        reranker,
-        collection=settings.collection,
-        namespace=settings.kb_namespace,
-        candidate_k=settings.kb_candidate_k,
-        min_vector_score=settings.kb_min_vector_score,
-        min_rerank_score=settings.kb_min_rerank_score,
-        hybrid_enabled=settings.kb_hybrid_enabled,
-        bm25_ttl_seconds=settings.kb_bm25_ttl_seconds,
-        rrf_k=settings.kb_rrf_k,
-    )
-    return retriever, settings.collection
+        retriever = Retriever(
+            embedder,
+            store,
+            reranker,
+            collection=settings.collection,
+            namespace=settings.kb_namespace,
+            candidate_k=settings.kb_candidate_k,
+            min_vector_score=settings.kb_min_vector_score,
+            min_rerank_score=settings.kb_min_rerank_score,
+            hybrid_enabled=settings.kb_hybrid_enabled,
+            bm25_ttl_seconds=settings.kb_bm25_ttl_seconds,
+            rrf_k=settings.kb_rrf_k,
+        )
+        return retriever, settings.collection
+    except Exception as err:  # noqa: BLE001 - 知识库是可选增强，失败必须降级而非崩溃
+        log.warning("kb_search 未注册（知识库初始化失败，已降级: %s）", err)
+        return None, None
 
 
 def build_service(settings: Settings | None = None) -> Service:
